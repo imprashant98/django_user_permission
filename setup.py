@@ -6,13 +6,13 @@ with open("README.md", "r", encoding="utf-8") as fh:
 
 setup(
     name="django-user-permissions",
-    version="0.1.0",
-    author="Your Name",
-    author_email="your.email@example.com",
-    description="User-specific permissions with per‑object support for Django + DRF",
+    version="0.1.1",
+    author="Prashant Karna",
+    author_email="prashantkarna21@gmail.com",
+    description="User-specific permissions with per-object support for Django + DRF",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    url="https://github.com/yourusername/django-user-permissions",  # Update
+    url="https://github.com/imprashant98/django_user_permission",  
     packages=find_packages(exclude=["tests", "tests.*"]),
     include_package_data=True,
     classifiers=[
