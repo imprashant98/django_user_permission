@@ -1,0 +1,6 @@
+include README.md
+include LICENSE
+recursive-include django_user_permissions/migrations *.py
+recursive-include django_user_permissions/management *.py
+global-exclude *.pyc
+global-exclude __pycache__
