@@ -179,6 +179,25 @@ change_document
 
 # How Permission Checks Work
 
+```mermaid
+flowchart TD
+    A[Incoming Request] --> B{Is user<br>authenticated?}
+    B -->|No| DENY([❌ Deny])
+    B -->|Yes| C{Is user<br>superuser?}
+    C -->|Yes| ALLOW([✅ Allow])
+    C -->|No| D{Is action marked<br>safe/public?}
+    D -->|Yes| ALLOW
+    D -->|No| E{Has global<br>permission?}
+    E -->|Yes| ALLOW
+    E -->|No| F{Is this a create<br>with valid ownership?}
+    F -->|Yes| ALLOW
+    F -->|No| G{Has per‑object<br>permission?}
+    G -->|Yes| ALLOW
+    G -->|No| H{Is owner and<br>action allowed?}
+    H -->|Yes| ALLOW
+    H -->|No| DENY
+```
+
 Permission evaluation order:
 
 1. Superuser access
