@@ -1,7 +1,8 @@
-from django.db.models import Exists, OuterRef
+from django.db.models import Exists, OuterRef, Q
 import logging
 
 from .permissions import UserSpecificPermission
+from .settings import user_permissions_settings
 
 logger = logging.getLogger(__name__)
 
@@ -32,22 +33,29 @@ class UserSpecificPermissionMixin:
         if user.has_perm(view_perm_codename):
             return queryset
 
-        # Otherwise, restrict to objects where the user has a per‑object view permission.
-        # Use a subquery rather than a list of IDs (avoids large IN clause).
+        # Otherwise, restrict to objects where the user has:
+        #   - a per‑object view permission, OR
+        #   - is the owner (if ownership field is defined)
         from .models import UserPermission
         from django.contrib.contenttypes.models import ContentType
 
         content_type = ContentType.objects.get_for_model(model_cls)
-        # Subquery: exists in UserPermission with matching object_id
-        subquery = UserPermission.objects.filter(
+        per_object_subquery = UserPermission.objects.filter(
             user=user,
             permission__codename=view_perm_codename,
             content_type=content_type,
             object_id=OuterRef('pk')
         )
-        filtered = queryset.filter(Exists(subquery))
+        q_filter = Q(Exists(per_object_subquery))
 
-        # Warn if the unfiltered queryset is large (performance hint)
+        # Add ownership condition
+        owner_field = user_permissions_settings.OWNERSHIP_FIELD
+        if owner_field and hasattr(model_cls, owner_field):
+            q_filter |= Q(**{owner_field: user})
+
+        filtered = queryset.filter(q_filter)
+
+        # Optional performance warning
         if not filtered.exists() and queryset.count() > 1000:
             logger.warning(
                 f"User {user.id} has no view permissions for {model_name}, "

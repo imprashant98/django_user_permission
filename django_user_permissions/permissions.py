@@ -18,15 +18,9 @@ class UserSpecificPermission(BasePermission):
     """
 
     def _get_action(self, view, request):
-        """
-        Determine internal action name from viewset action or HTTP method.
-        Returns one of: 'list', 'retrieve', 'create', 'update', 'partial_update', 'destroy',
-        or the custom action name (e.g., 'export') if present.
-        """
-        # If viewset has an .action attribute (e.g., @action decorator)
+        """Determine internal action name from viewset action or HTTP method."""
         if hasattr(view, 'action') and view.action is not None:
             return view.action
-        # Otherwise map HTTP method to default actions
         method = request.method.lower()
         method_map = {
             'get': 'retrieve',
@@ -35,7 +29,6 @@ class UserSpecificPermission(BasePermission):
             'patch': 'partial_update',
             'delete': 'destroy',
         }
-        # Distinguish between list and retrieve for GET
         if method == 'get' and hasattr(view, 'action') and view.action == 'list':
             return 'list'
         if method == 'get':
@@ -43,9 +36,7 @@ class UserSpecificPermission(BasePermission):
         return method_map.get(method, method)
 
     def get_model_class(self, view):
-        """
-        Resolve the model class from the view's queryset or serializer Meta.
-        """
+        """Resolve the model class from the view's queryset or serializer Meta."""
         if hasattr(view, 'queryset') and view.queryset is not None:
             return view.queryset.model
         if hasattr(view, 'get_serializer_class'):
@@ -68,21 +59,32 @@ class UserSpecificPermission(BasePermission):
         model_name = model_cls._meta.model_name
         required_action = user_permissions_settings.ACTION_PERMISSION_MAP.get(action)
 
+        # Safe method override (public endpoints) – highest priority
+        if self._check_safe_method_override(request, model_name, action):
+            return True
+
+        # If the action is not mapped, deny by default
         if required_action is None:
-            return self._check_safe_method_override(request, model_name, action)
+            return False
 
         perm_codename = f"{required_action}_{model_name}"
 
-        # Global permission check
+        # 1. Global permission check
         if request.user.has_perm(perm_codename):
             return True
 
-        # Create action with ownership check
+        # 2. Actions that can be authorised at object level (retrieve, update, etc.)
+        if action in user_permissions_settings.ALLOW_OBJECT_LEVEL_ACTIONS:
+            # Let has_object_permission decide
+            return True
+
+        # 3. Create action with ownership check
         if action == 'create' and user_permissions_settings.ALLOW_CREATE_ON_OWNERSHIP:
             return self._check_create_ownership(request)
 
-        # Safe method override
-        if self._check_safe_method_override(request, model_name, action):
+        # 4. List action – optionally allow empty results
+        if action == 'list' and user_permissions_settings.LIST_ALLOW_EMPTY:
+            # The queryset will be filtered in get_queryset (via mixin)
             return True
 
         return False
@@ -98,21 +100,25 @@ class UserSpecificPermission(BasePermission):
         model_name = model_cls._meta.model_name
         required_action = user_permissions_settings.ACTION_PERMISSION_MAP.get(action)
 
+        # Safe method override
+        if self._check_safe_method_override(request, model_name, action):
+            return True
+
         if required_action is None:
-            return self._check_safe_method_override(request, model_name, action)
+            return False
 
         perm_codename = f"{required_action}_{model_name}"
 
-        # Global permission
+        # 1. Global permission
         if request.user.has_perm(perm_codename):
             return True
 
-        # Per‑object permission
+        # 2. Per‑object permission from UserPermission
         object_perms = get_user_permissions_for_object(request.user, obj)
         if perm_codename in object_perms:
             return True
 
-        # Ownership rule
+        # 3. Ownership rule
         owner_field = user_permissions_settings.OWNERSHIP_FIELD
         if owner_field and hasattr(obj, owner_field):
             owner = getattr(obj, owner_field)
@@ -120,24 +126,14 @@ class UserSpecificPermission(BasePermission):
                 if required_action in user_permissions_settings.OWNER_AUTO_PERMISSIONS:
                     return True
 
-        # Safe method override
-        if self._check_safe_method_override(request, model_name, action):
-            return True
-
         return False
 
     def _check_safe_method_override(self, request, model_name, action):
-        """
-        Check static safe methods first (MODEL_SAFE_METHODS setting).
-        If enabled (USE_DB_SAFE_METHODS = True), also check dynamic database model.
-        Results from DB are cached.
-        """
-        # 1. Static configuration (default, recommended)
+        """Check static safe methods (and optional dynamic DB ones)."""
         safe_methods = user_permissions_settings.MODEL_SAFE_METHODS.get(model_name, [])
         if action in safe_methods or request.method.lower() in safe_methods:
             return True
 
-        # 2. Optional dynamic database lookup (disabled by default)
         if user_permissions_settings.USE_DB_SAFE_METHODS:
             cache_key = f"safe_methods_db_{model_name}"
             db_methods = cache.get(cache_key)
@@ -150,15 +146,7 @@ class UserSpecificPermission(BasePermission):
         return False
 
     def _fetch_safe_methods_from_db(self, model_name):
-        """
-        Override this method to integrate with your existing ModelMethod model.
-        Example implementation for your original code with a 'ModelMethod' table:
-        
-        from setting.models import ModelMethod
-        qs = ModelMethod.objects.filter(model_name__model_name__iexact=model_name)
-        return list(qs.values_list('method__name', flat=True))
-        """
-        # Default: return empty list (no dynamic safe methods)
+        """Override to integrate with your existing ModelMethod model."""
         return []
 
     def _check_create_ownership(self, request):
